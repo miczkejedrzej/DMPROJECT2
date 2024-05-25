@@ -1,0 +1,4 @@
+[core]
+    remote = repozytorium
+['remote "repozytorium"']
+    url = ~/dvcrepo
