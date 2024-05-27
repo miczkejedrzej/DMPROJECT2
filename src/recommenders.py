@@ -62,6 +62,7 @@ class Data:
         for preprocessor in self.preprocessors:
             preprocessed_data = preprocessor.fit_transform(preprocessed_data)
 
+        #these names are getting a bit long but well... everything for clarity 
         self.train_data_table_for_clustering_normalized = pd.DataFrame(preprocessed_data,
                                                                       columns=self.train_data_table_for_clustering.columns,
                                                                       index=self.train_data_table_for_clustering.index)
