@@ -33,9 +33,10 @@ class Data:
                              pd.read_csv(f'{data_dir}/{"ratings"}.csv'),
                              on='movieId')
         
+        self.unprocessed_data = self.unprocessed_data[["movieId", "genres", "userId", "rating"]]
         self.unprocessed_data["genres"] = self.unprocessed_data["genres"].str.split("|")
         self.unprocessed_data = self.unprocessed_data.explode("genres")
-        self.unprocessed_data = self.unprocessed_data[["movieId", "genres", "userId", "rating"]]
+        
 
         self.movie_genres = self.unprocessed_data[["movieId", "genres"]].drop_duplicates()
         self.train_data, self.test_data = train_test_split(
