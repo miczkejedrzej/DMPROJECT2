@@ -9,6 +9,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer, KNNImputer
 from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, fpmax, fpgrowth, association_rules
+import math 
 
 class RuleBasedRecommender:
     """
@@ -87,6 +88,7 @@ class ClusteringBasedRecommender:
         - data_unnormalized (pd.DataFrame): Unnormalized data table used for prediction.
         - movie_genres (pd.DataFrame): Data table containing movie genres.
         - clusterer: Clustering algorithm object to be used.
+        -apriori: if the intrac-cluster apriori is to be used
         """
         self.if_apriori = apriori
         self.data_table = data
@@ -127,6 +129,11 @@ class ClusteringBasedRecommender:
 
         users_in_cluster = self.data_table[self.data_table['cluster'] == user_cluster].index
         genre_ratings = self.data_table_unnormalized.loc[users_in_cluster, movie_genres].mean(axis=1).mean()
+        genre_ratings_2 = genre_ratings*2
+        if genre_ratings_2 - int(genre_ratings_2) >= 0.5:
+            genre_ratings = (math.ceil(genre_ratings_2))/2
+        else:
+            genre_ratings = (math.floor(genre_ratings_2))/2
         
         if self.if_apriori != True:
             return genre_ratings
@@ -173,7 +180,7 @@ class ClusteringBasedRecommender:
                         continue
                     self.counter += 1
                     genre_ratings = j/2
-        # #possible
+        
         return genre_ratings
     
 class Apriori:
@@ -196,15 +203,19 @@ class Apriori:
         genre_columns = [col for col in self.data_to_apriori.columns if col not in ['userId', 'movieId', 'rating','cluster']]
         self.rules_dict1 = {}
         self.rules_dict2 = {}
+        #group the data by clusters to do intra-cluster assosciation mining
         grouped = self.data_to_apriori.groupby('cluster')
-
+        #proper encoding of records as transcations
         for cluster,group in tqdm(grouped):
+            #splitting transcations into two groups to ommit generating rules like genre->moviedid etc
             transactions1= group.apply(lambda row: [f"userId_{row['userId']}", row['rating']] + \
                                              [genre for genre in genre_columns if row[genre] == 1], axis=1).tolist()
             
             transactions2 = group.apply(lambda row: [ row['rating'],row['movieId']], axis=1).tolist()
             transactions1 = [[str(elem) for elem in transaction] for transaction in transactions1]
             transactions2 = [[str(elem) for elem in transaction] for transaction in transactions2]
+
+            #encoding the transcations
             te1 = TransactionEncoder()
             te2 = TransactionEncoder()
             te_ary1 = te1.fit(transactions1).transform(transactions1)
@@ -218,6 +229,7 @@ class Apriori:
         self.all_rules = {}
         self.all_rules_confidence = {}
         # Iterate over self.rules_dict1 and self.rules_dict2
+        # retriving the proper format of rules and their confidence also
         for cluster, rules_df in self.rules_dict1.items():
             # Extract the rules as tuples (antecedent, consequent)
             rules_list = set([tuple(sorted(list(rule.antecedents) +list(rule.consequents)))
@@ -257,9 +269,10 @@ class Apriori:
         
 
         
+    #this is where apriori takes place in fact 
 
     @staticmethod
-    def get_association_rules(data, min_support=0.0005, metric="confidence", min_threshold=0.7):
+    def get_association_rules(data, min_support=0.001, metric="confidence", min_threshold=0.7):
         frequent_itemsets = apriori(data, min_support=min_support, use_colnames=True)
       
         print(len(frequent_itemsets))
