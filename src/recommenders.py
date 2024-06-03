@@ -74,23 +74,26 @@ class Data:
 
 
 
-class ClusteringBasedRecommender:
-    def __init__(self, apriori:bool, data:pd.DataFrame,
+class ClusteringAndAprioriBasedRecommender:
+    def __init__(self, data:pd.DataFrame,
                  data_unnormalized:pd.DataFrame,
                  movie_genres:pd.DataFrame,
                  clusterer=KMeans(10, random_state=124)) -> None:
         """
-        Clustering-based recommender class.
-        This class is used for clustering-based recommendation.
+        Clustering-based recommender class with apriori.
+        This class is used for clustering-based recommendation and intra-cluster searching for recommendation 
+        rules. Firstly it carries out the clustering, and only then it carries out the apriori on each cluster
+        to find the rules within this cluster. then when predicting, it checks whether there is any rule
+        in given cluster that matches the UserID or movieID that rating is being predicted for. If there is such
+        rule, it returns the rating from the rule insted of rounded mean as it was in case of clusterer only. If
+        several rules matched, the rules with greater confidence is taken into consideration.
         
         Parameters:
         - data (pd.DataFrame): Data table used for clustering.
         - data_unnormalized (pd.DataFrame): Unnormalized data table used for prediction.
         - movie_genres (pd.DataFrame): Data table containing movie genres.
         - clusterer: Clustering algorithm object to be used.
-        -apriori: if the intrac-cluster apriori is to be used
         """
-        self.if_apriori = apriori
         self.data_table = data
         self.data_table_unnormalized = data_unnormalized
 
@@ -102,20 +105,19 @@ class ClusteringBasedRecommender:
         """
         Train the clustering-based recommender model.
         This method performs clustering on the data table and assigns clusters to each data point.
-        if aprior=True, also includes apriori
+        it also calls Apriori to generate assosciation rules for each cluster.
         """
         self.clusters = self.clusterer.fit_predict(self.data_table)
         self.data_table['cluster'] = self.clusters
         data_to_apriori = self.data_table
         
-        if self.if_apriori == True:
-            self.counter = 0
-            obj = Apriori(data_to_apriori)
-            self.rules = obj.give_rules()
-            self.confidence_rules =  obj.give_confidence()
+        self.counter = 0
+        obj = Apriori(data_to_apriori)
+        self.rules = obj.give_rules()
+        self.confidence_rules =  obj.give_confidence()
     def predict(self, user_id:int, movie_id:int) -> float:
         """
-        Predict the rating for a given user and movie.
+        Predict the rating for a given user and movie. 
         
         Parameters:
         - user_id (int): ID of the user.
@@ -129,14 +131,15 @@ class ClusteringBasedRecommender:
 
         users_in_cluster = self.data_table[self.data_table['cluster'] == user_cluster].index
         genre_ratings = self.data_table_unnormalized.loc[users_in_cluster, movie_genres].mean(axis=1).mean()
+        # the predicted value is rounded to a proper possible value of raiting 
         genre_ratings_2 = genre_ratings*2
         if genre_ratings_2 - int(genre_ratings_2) >= 0.5:
             genre_ratings = (math.ceil(genre_ratings_2))/2
         else:
             genre_ratings = (math.floor(genre_ratings_2))/2
         
-        if self.if_apriori != True:
-            return genre_ratings
+        #checking if any rules regarding the userId or movieID are availabe in this cluster, so that
+        # the raiting can be infered from rule, not from mean
         id_format = "userId_{}".format(user_id)
         movie_id_str = str(movie_id)
         confidence = 0
@@ -154,6 +157,8 @@ class ClusteringBasedRecommender:
              if assosciation_2 in self.rules[user_cluster]:
                  print(assosciation_2)
                  self.counter += 1
+                 #the hierarhcy of rules, if a pair userID movieId matches several rules we choose 
+                 #rule with the greatest confidence to determine the rating
                  if self.confidence_rules[user_cluster][assosciation_2] < confidence:
                     continue
                 
@@ -183,14 +188,86 @@ class ClusteringBasedRecommender:
         
         return genre_ratings
     
+
+class ClusteringBasedRecommender:
+    def __init__(self, data:pd.DataFrame,
+                 data_unnormalized:pd.DataFrame,
+                 movie_genres:pd.DataFrame,
+                 clusterer=KMeans(10, random_state=124)) -> None:
+        """
+        Clustering-based recommender class.
+        This class is used for clustering-based recommendation.
+        
+        Parameters:
+        - data (pd.DataFrame): Data table used for clustering.
+        - data_unnormalized (pd.DataFrame): Unnormalized data table used for prediction.
+        - movie_genres (pd.DataFrame): Data table containing movie genres.
+        - clusterer: Clustering algorithm object to be used.
+        """
+        self.data_table = data
+        self.data_table_unnormalized = data_unnormalized
+
+        self.movie_genres = movie_genres
+        self.clusterer = clusterer
+        self.clusters = None
+        
+    def train(self) -> None:
+        """
+        Train the clustering-based recommender model.
+        This method performs clustering on the data table and assigns clusters to each data point.
+        if aprior=True, also includes apriori
+        """
+        self.clusters = self.clusterer.fit_predict(self.data_table)
+        self.data_table['cluster'] = self.clusters
+        
+       
+    def predict(self, user_id:int, movie_id:int) -> float:
+        """
+        Predict the rating for a given user and movie.
+        
+        Parameters:
+        - user_id (int): ID of the user.
+        - movie_id (int): ID of the movie.
+        
+        Returns:
+        - float: Predicted rating for the user and movie.
+        """
+        user_cluster = self.clusters[user_id-1]
+        movie_genres = self.movie_genres[self.movie_genres['movieId'] == movie_id]['genres'].values
+
+        users_in_cluster = self.data_table[self.data_table['cluster'] == user_cluster].index
+        genre_ratings = self.data_table_unnormalized.loc[users_in_cluster, movie_genres].mean(axis=1).mean()
+        genre_ratings_2 = genre_ratings*2
+        if genre_ratings_2 - int(genre_ratings_2) >= 0.5:
+            genre_ratings = (math.ceil(genre_ratings_2))/2
+        else:
+            genre_ratings = (math.floor(genre_ratings_2))/2
+        
+        return genre_ratings
+
+
+
+    
 class Apriori:
-    def __init__(self,data_clustered,data_dir:str="ml-latest-small",
+    """ carry out the Apriori alogrithm.
+        
+        Parameters:
+        - data_clustered (pd.Dataframe): The dataframe with clusters, to filter users by clusters.
+        - data_dir(str): directory to get unprocessed data from.
+        
+        Returns:
+        - None: does not return anything
+    """
+
+
+    def __init__(self,data_clustered:pd.DataFrame,data_dir:str="ml-latest-small",
                   seed:int=124) -> None:
         self.unprocessed_data = pd.merge(pd.read_csv(f'{data_dir}/{"movies"}.csv'),
                              pd.read_csv(f'{data_dir}/{"ratings"}.csv'),
                              on='movieId')
         data_clustered =  data_clustered.reset_index()
         self.data_clustered = data_clustered[['cluster','userId']]
+        #joining unprocessed data with clusters, to create rules inside the clusters
         self.data_to_apriori = pd.merge(self.unprocessed_data,self.data_clustered,on="userId")
         self.data_to_apriori["rating"] = self.data_to_apriori["rating"].apply(lambda x: f"rating_{x}")
         self.data_to_apriori["genres"] = self.data_to_apriori["genres"].str.split("|")
@@ -235,6 +312,7 @@ class Apriori:
             rules_list = set([tuple(sorted(list(rule.antecedents) +list(rule.consequents)))
                                for rule in rules_df.itertuples()
                               if any('rating' in element for element in rule.consequents)])
+            # Extract also the confidence of found rules
             self.all_rules_confidence[cluster] = {tuple(sorted(list(rule.antecedents) +list(rule.consequents))):rule.confidence 
                                                   for rule in rules_df.itertuples()
                                                    if any('rating' in element for element in rule.consequents) }
@@ -256,13 +334,12 @@ class Apriori:
                 self.all_rules_confidence[cluster] = {tuple(sorted(list(rule.antecedents) +list(rule.consequents))):rule.confidence 
                                                       for rule in rules_df.itertuples()
                                                        if any('rating' in element for element in rule.consequents) }
-        # print(self.all_rules)
-        # print(self.all_rules_confidence)
-
+    
        
-       
+    #rules getter
     def give_rules(self):
         return self.all_rules
+    #confidence of rules getter
     def give_confidence(self):
         return self.all_rules_confidence
        
