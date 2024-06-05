@@ -78,7 +78,9 @@ class ClusteringAndAprioriBasedRecommender:
     def __init__(self, data:pd.DataFrame,
                  data_unnormalized:pd.DataFrame,
                  movie_genres:pd.DataFrame,
-                 clusterer=KMeans(10, random_state=124)) -> None:
+                 min_support:float,metric:str,min_threshold:float,
+                 clusterer=KMeans(10, random_state=124),
+                 ) -> None:
         """
         Clustering-based recommender class with apriori.
         This class is used for clustering-based recommendation and intra-cluster searching for recommendation 
@@ -94,9 +96,12 @@ class ClusteringAndAprioriBasedRecommender:
         - movie_genres (pd.DataFrame): Data table containing movie genres.
         - clusterer: Clustering algorithm object to be used.
         """
+        self.min_support = min_support
+        self.metric = metric
+        self.min_threshold = min_threshold
         self.data_table = data
         self.data_table_unnormalized = data_unnormalized
-
+        self.matched_rules = set()
         self.movie_genres = movie_genres
         self.clusterer = clusterer
         self.clusters = None
@@ -112,7 +117,7 @@ class ClusteringAndAprioriBasedRecommender:
         data_to_apriori = self.data_table
         
         self.counter = 0
-        obj = Apriori(data_to_apriori)
+        obj = Apriori(data_to_apriori,self.min_support,self.metric,self.min_threshold)
         self.rules = obj.give_rules()
         self.confidence_rules =  obj.give_confidence()
     def predict(self, user_id:int, movie_id:int) -> float:
@@ -131,7 +136,7 @@ class ClusteringAndAprioriBasedRecommender:
 
         users_in_cluster = self.data_table[self.data_table['cluster'] == user_cluster].index
         genre_ratings = self.data_table_unnormalized.loc[users_in_cluster, movie_genres].mean(axis=1).mean()
-        # the predicted value is rounded to a proper possible value of raiting 
+        # the predicted value is rounded to a proper possible value of rating 
         genre_ratings_2 = genre_ratings*2
         if genre_ratings_2 - int(genre_ratings_2) >= 0.5:
             genre_ratings = (math.ceil(genre_ratings_2))/2
@@ -147,46 +152,41 @@ class ClusteringAndAprioriBasedRecommender:
              rait = "rating_{}".format(j/2)
              assosciation_1 = tuple(sorted([rait,movie_id_str]))
              if assosciation_1 in self.rules[user_cluster]:
-                print(assosciation_1)
-                self.counter += 1
                 genre_ratings = j/2
                 confidence = self.confidence_rules[user_cluster][assosciation_1]
+                self.matched_rules.add(assosciation_1)
         for j in range(0,12,1):
              rait = "rating_{}".format(j/2)
              assosciation_2 = tuple(sorted([rait,id_format]))
              if assosciation_2 in self.rules[user_cluster]:
-                 print(assosciation_2)
-                 self.counter += 1
                  #the hierarhcy of rules, if a pair userID movieId matches several rules we choose 
                  #rule with the greatest confidence to determine the rating
                  if self.confidence_rules[user_cluster][assosciation_2] < confidence:
-                    continue
-                
-                
-
-                 genre_ratings = j/2
-                 confidence = self.confidence_rules[user_cluster][assosciation_2]
+                    pass
+                 else:
+                    genre_ratings = j/2
+                    confidence = self.confidence_rules[user_cluster][assosciation_2]
+                    self.matched_rules.add(assosciation_2)
              for genre in movie_genres:
                 assosciation_3 = tuple(sorted([genre,rait]))
                 if assosciation_3 in self.rules[user_cluster]:
-                    print(assosciation_3)
-                    self.counter += 1
                     if self.confidence_rules[user_cluster][assosciation_3] < confidence:
-                        continue
-                    self.counter += 1
-                  
-                  
-                    genre_ratings = j/2
-                    confidence = self.confidence_rules[user_cluster][assosciation_3]
+                        pass
+                    else:
+                        genre_ratings = j/2
+                        confidence = self.confidence_rules[user_cluster][assosciation_3]
+                        self.matched_rules.add(assosciation_3)
                 assosciation_4 = tuple(sorted([genre,rait,id_format]))
                 if assosciation_4 in self.rules[user_cluster]:
-                    print(assosciation_4)
                     if self.confidence_rules[user_cluster][assosciation_4] < confidence:
-                        continue
-                    self.counter += 1
-                    genre_ratings = j/2
+                        pass
+                    else:
+                        genre_ratings = j/2
+                        self.matched_rules.add(assosciation_4)
         
         return genre_ratings
+    def give_matched_assosciations(self):
+        return self.matched_rules
     
 
 class ClusteringBasedRecommender:
@@ -260,11 +260,14 @@ class Apriori:
     """
 
 
-    def __init__(self,data_clustered:pd.DataFrame,data_dir:str="ml-latest-small",
+    def __init__(self,data_clustered:pd.DataFrame,min_support:float,metric:str,min_threshold:float,data_dir:str="ml-latest-small",
                   seed:int=124) -> None:
         self.unprocessed_data = pd.merge(pd.read_csv(f'{data_dir}/{"movies"}.csv'),
                              pd.read_csv(f'{data_dir}/{"ratings"}.csv'),
                              on='movieId')
+        self.min_support = min_support
+        self.metric = metric
+        self.min_threshold = min_threshold
         data_clustered =  data_clustered.reset_index()
         self.data_clustered = data_clustered[['cluster','userId']]
         #joining unprocessed data with clusters, to create rules inside the clusters
@@ -298,9 +301,11 @@ class Apriori:
             te_ary1 = te1.fit(transactions1).transform(transactions1)
             te_ary2 = te2.fit(transactions2).transform(transactions2)
             self.encoded_data = pd.DataFrame(te_ary1, columns=te1.columns_)
-            self.rules_dict1[cluster] = self.get_association_rules(self.encoded_data)
+            self.rules_dict1[cluster] = self.get_association_rules(self.encoded_data,self.min_support,
+                                                                   self.metric,self.min_threshold)
             self.encoded_data = pd.DataFrame(te_ary2, columns=te2.columns_)
-            self.rules_dict2[cluster] = self.get_association_rules(self.encoded_data)
+            self.rules_dict2[cluster] = self.get_association_rules(self.encoded_data,self.min_support
+                                                                   ,self.metric,self.min_threshold)
         
 
         self.all_rules = {}
@@ -352,6 +357,7 @@ class Apriori:
     def get_association_rules(data, min_support=0.001, metric="confidence", min_threshold=0.7):
         frequent_itemsets = apriori(data, min_support=min_support, use_colnames=True)
       
-        print(len(frequent_itemsets))
+        #was usefull for debugging purposes
+        #print(len(frequent_itemsets))
         rules = association_rules(frequent_itemsets, metric=metric, min_threshold=min_threshold)
         return rules
