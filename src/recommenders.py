@@ -11,11 +11,7 @@ from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, fpmax, fpgrowth, association_rules
 import math 
 
-class RuleBasedRecommender:
-    """
-    Rule-based recommender class.
-    This class is used for rule-based recommendation.
-    """
+
 
 
 class Data:
@@ -86,9 +82,9 @@ class ClusteringAndAprioriBasedRecommender:
         This class is used for clustering-based recommendation and intra-cluster searching for recommendation 
         rules. Firstly it carries out the clustering, and only then it carries out the apriori on each cluster
         to find the rules within this cluster. then when predicting, it checks whether there is any rule
-        in given cluster that matches the UserID or movieID that rating is being predicted for. If there is such
+        in given cluster  matching the UserID or movieID that rating is being predicted for. If there is such
         rule, it returns the rating from the rule insted of rounded mean as it was in case of clusterer only. If
-        several rules matched, the rules with greater confidence is taken into consideration.
+        several rules matched, the rule with greater confidence is choosen.
         
         Parameters:
         - data (pd.DataFrame): Data table used for clustering.
@@ -185,6 +181,7 @@ class ClusteringAndAprioriBasedRecommender:
                         self.matched_rules.add(assosciation_4)
         
         return genre_ratings
+    #assosciation getter
     def give_matched_assosciations(self):
         return self.matched_rules
     
@@ -351,7 +348,7 @@ class Apriori:
         
 
         
-    #this is where apriori takes place in fact 
+    #this is where apriori takes place in fact, we are using an efficient implementation from mlxtend 
 
     @staticmethod
     def get_association_rules(data, min_support=0.001, metric="confidence", min_threshold=0.7):
